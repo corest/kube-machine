@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"text/template"
 
+	"strings"
+
 	"github.com/docker/machine/libmachine/drivers"
 	"github.com/docker/machine/libmachine/provision"
 	"github.com/golang/glog"
+	"github.com/kube-node/kube-machine/pkg/metrics"
 	"github.com/kube-node/kube-machine/pkg/nodeclass"
-	"strings"
 )
 
 type NodeClassProvisionerWrapper struct {
@@ -25,13 +27,20 @@ type KubeMachineProvisioner interface {
 func DetectProvisioner(driver drivers.Driver) (KubeMachineProvisioner, error) {
 	p, err := provision.DetectProvisioner(driver)
 	if err != nil {
+		metrics.IncErrors(metrics.Error)
 		return nil, err
 	}
 
 	return &NodeClassProvisionerWrapper{p}, nil
 }
 
-func (p *NodeClassProvisionerWrapper) ProvisionConfig(config *nodeclass.NodeClassConfig) error {
+func (p *NodeClassProvisionerWrapper) ProvisionConfig(config *nodeclass.NodeClassConfig) (err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	for _, f := range config.Provisioning.Files {
 		if err := p.scp([]byte(f.Content), f.Path, f.Permissions, f.Owner); err != nil {
 			return fmt.Errorf("failed to create file %q: %v", f.Path, err)
@@ -66,7 +75,13 @@ func (p *NodeClassProvisionerWrapper) ProvisionConfig(config *nodeclass.NodeClas
 	return nil
 }
 
-func (p *NodeClassProvisionerWrapper) scp(data []byte, path string, chmod string, owner string) error {
+func (p *NodeClassProvisionerWrapper) scp(data []byte, path string, chmod string, owner string) (err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	data64 := base64.StdEncoding.EncodeToString(data)
 
 	ctx := struct {
@@ -85,7 +100,7 @@ sudo touch {{.Path}} && \
 sudo chown {{.Chown}} {{.Path}} && \
 sudo sh -c 'echo "{{.Data64}}" | base64 -d > {{.Path}}' && \
 sudo chmod {{.Chmod}} {{.Path}}`)
-	err := cmdTmpl.Execute(cmd, ctx)
+	err = cmdTmpl.Execute(cmd, ctx)
 	if err != nil {
 		return err
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/golang/glog"
 	"github.com/kube-node/kube-machine/pkg/controller"
 	"github.com/kube-node/kube-machine/pkg/libmachine"
+	"github.com/kube-node/kube-machine/pkg/metrics"
 	"github.com/kube-node/kube-machine/pkg/nodeclass"
 	"github.com/kube-node/nodeset/pkg/nodeset/v1alpha1"
 	"k8s.io/apimachinery/pkg/types"
@@ -84,13 +85,21 @@ func (c *Controller) processNextItem() bool {
 	return true
 }
 
-func (c *Controller) syncNode(key string) error {
+func (c *Controller) syncNode(key string) (err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	nobj, exists, err := c.nodeIndexer.GetByKey(key)
 	if err != nil {
+		metrics.IncErrors(metrics.Error)
 		glog.Errorf("Fetching object with key %s from store failed with %v", key, err)
 		return err
 	}
 	if !exists {
+		metrics.IncErrors(metrics.Info)
 		glog.Infof("Node %s does not exist anymore\n", key)
 		return nil
 	}
@@ -151,7 +160,13 @@ func (c *Controller) syncNode(key string) error {
 	return nil
 }
 
-func (c *Controller) getNodeClass(name string) (*v1alpha1.NodeClass, *nodeclass.NodeClassConfig, error) {
+func (c *Controller) getNodeClass(name string) (nc *v1alpha1.NodeClass, ncc *nodeclass.NodeClassConfig, err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	ncobj, exists, err := c.nodeClassStore.GetByKey("default/" + name)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not fetch nodeclass from store: %v", err)

@@ -2,11 +2,14 @@ package node
 
 import (
 	"fmt"
+	"time"
 
 	"encoding/json"
 	"errors"
+
 	"github.com/docker/machine/libmachine/drivers"
 	"github.com/docker/machine/libmachine/state"
+	"github.com/kube-node/kube-machine/pkg/metrics"
 	nodehelper "github.com/kube-node/kube-machine/pkg/node"
 	"github.com/kube-node/kube-machine/pkg/options"
 	"k8s.io/client-go/pkg/api/v1"
@@ -17,6 +20,13 @@ const (
 )
 
 func (c *Controller) syncPendingNode(node *v1.Node) (changedN *v1.Node, err error) {
+	start := time.Now()
+	defer func(s time.Time) {
+		metrics.SyncOperationTime(time.Now().Sub(s), phasePending)
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}(start)
 
 	changedN, err = c.pendingCreateTaint(node)
 	if err != nil || changedN != nil {
@@ -70,7 +80,13 @@ func (c *Controller) pendingCreateFinalizer(node *v1.Node) (*v1.Node, error) {
 	return nil, nil
 }
 
-func (c *Controller) pendingCreateInstance(node *v1.Node) (*v1.Node, error) {
+func (c *Controller) pendingCreateInstance(node *v1.Node) (n *v1.Node, err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	if node.Annotations[driverDataAnnotationKey] != "" {
 		return nil, nil
 	}
@@ -109,7 +125,13 @@ func (c *Controller) pendingCreateInstance(node *v1.Node) (*v1.Node, error) {
 	return node, nil
 }
 
-func (c *Controller) pendingCreateInstanceDetails(node *v1.Node) (*v1.Node, error) {
+func (c *Controller) pendingCreateInstanceDetails(node *v1.Node) (n *v1.Node, err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	if node.Annotations[publicIPAnnotationKey] != "" {
 		return nil, nil
 	}
@@ -135,7 +157,13 @@ func (c *Controller) pendingCreateInstanceDetails(node *v1.Node) (*v1.Node, erro
 
 }
 
-func (c *Controller) pendingWaitUntilInstanceIsRunning(node *v1.Node) (*v1.Node, error) {
+func (c *Controller) pendingWaitUntilInstanceIsRunning(node *v1.Node) (n *v1.Node, err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	h, err := c.mapi.Load(node)
 	if err != nil {
 		return nil, err

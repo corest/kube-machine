@@ -16,6 +16,7 @@ import (
 	"github.com/docker/machine/libmachine/mcnerror"
 	"github.com/docker/machine/libmachine/swarm"
 	"github.com/docker/machine/libmachine/version"
+	"github.com/kube-node/kube-machine/pkg/metrics"
 	"github.com/kube-node/kube-machine/pkg/nodeclass"
 	"github.com/kube-node/kube-machine/pkg/provision"
 	"k8s.io/client-go/pkg/api/v1"
@@ -45,6 +46,7 @@ func (api *Client) NewHost(driverName string, rawDriver []byte) (*host.Host, err
 	// which would make every external driver incompatible
 	err = os.MkdirAll(filepath.Join(".", "machines", driver.GetMachineName()), 0755)
 	if err != nil {
+		metrics.IncErrors(metrics.Error)
 		return nil, err
 	}
 
@@ -67,10 +69,16 @@ func (api *Client) NewHost(driverName string, rawDriver []byte) (*host.Host, err
 	}, nil
 }
 
-func (api *Client) Load(node *v1.Node) (*host.Host, error) {
+func (api *Client) Load(node *v1.Node) (h *host.Host, err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	data := node.Annotations[driverDataAnnotationKey]
 
-	h := &host.Host{
+	h = &host.Host{
 		Name: node.Name,
 	}
 
@@ -101,7 +109,13 @@ func (api *Client) Load(node *v1.Node) (*host.Host, error) {
 	return h, nil
 }
 
-func (api *Client) Create(h *host.Host) error {
+func (api *Client) Create(h *host.Host) (err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	log.Info("Running pre-create checks...")
 	if err := h.Driver.PreCreateCheck(); err != nil {
 		return mcnerror.ErrDuringPreCreate{
@@ -116,7 +130,13 @@ func (api *Client) Create(h *host.Host) error {
 	return nil
 }
 
-func (api *Client) Provision(h *host.Host, config *nodeclass.NodeClassConfig) error {
+func (api *Client) Provision(h *host.Host, config *nodeclass.NodeClassConfig) (err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	log.Info("Detecting operating system of created instance...")
 	provisioner, err := detector.DetectProvisioner(h.Driver)
 	if err != nil {

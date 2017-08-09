@@ -2,12 +2,24 @@ package node
 
 import (
 	"fmt"
+	"time"
+
+	"github.com/kube-node/kube-machine/pkg/metrics"
 
 	"encoding/json"
+
 	"k8s.io/client-go/pkg/api/v1"
 )
 
 func (c *Controller) syncProvisioningNode(node *v1.Node) (changedN *v1.Node, err error) {
+	start := time.Now()
+	defer func(s time.Time) {
+		metrics.SyncOperationTime(time.Now().Sub(s), phaseProvisioning)
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}(start)
+
 	changedN, err = c.provisionInstance(node)
 	if err != nil || changedN != nil {
 		return changedN, err
@@ -16,7 +28,13 @@ func (c *Controller) syncProvisioningNode(node *v1.Node) (changedN *v1.Node, err
 	return nil, nil
 }
 
-func (c *Controller) provisionInstance(node *v1.Node) (*v1.Node, error) {
+func (c *Controller) provisionInstance(node *v1.Node) (n *v1.Node, err error) {
+	defer func() {
+		if err != nil {
+			metrics.IncErrors(metrics.Error)
+		}
+	}()
+
 	h, err := c.mapi.Load(node)
 	if err != nil {
 		return nil, err
